@@ -50,6 +50,8 @@ input,select,textarea{width:100%;padding:10px 12px;border:1px solid var(--bd);bo
 .modal{position:fixed;inset:0;background:#0006;display:grid;place-items:center;z-index:50;padding:16px}.modal .card{width:420px;max-width:100%}
 .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--gd);color:#fff;padding:11px 20px;border-radius:24px;font-weight:600;font-size:14px;z-index:60}
 .empty{color:var(--mu);font-size:14px;padding:14px 0}.mt{margin-top:14px}
+.qrow{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--bd);font-size:13px}.qn{flex:1}.qi{display:flex;gap:6px;flex:none}.qi input{width:78px;padding:6px 8px}
+textarea{resize:vertical}
 @media(max-width:1100px){.layout{grid-template-columns:1fr}.g4{grid-template-columns:1fr 1fr}}
 @media(max-width:800px){.app{grid-template-columns:1fr}.side{position:static;height:auto;flex-direction:row;overflow-x:auto;padding:10px}.nav{width:auto;white-space:nowrap}.quote,.logo small{display:none}.g2{grid-template-columns:1fr}.main{padding:12px}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
