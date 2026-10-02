@@ -162,8 +162,58 @@ function QuickAdd({ onAdd, toast, compact }) {
   </div>
 }
 
+function PhotoLog({ onAdd, toast }) {
+  const [preview, setPreview] = useState(null), [b64, setB64] = useState(null), [mime, setMime] = useState('image/jpeg')
+  const [loading, setLoading] = useState(false), [draft, setDraft] = useState(null), [note, setNote] = useState('')
+
+  const onFile = e => {
+    const file = e.target.files?.[0]; if (!file) return
+    setMime(file.type || 'image/jpeg')
+    const reader = new FileReader()
+    reader.onload = () => { const full = reader.result; setPreview(full); setB64(full.split(',')[1]) }
+    reader.readAsDataURL(file)
+    setDraft(null); setNote('')
+  }
+  const analyze = async () => {
+    if (!b64) return
+    setLoading(true); setNote('')
+    try {
+      const r = await fetch('/api/analyze-food', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image: b64, mimeType: mime }) })
+      const data = await r.json()
+      if (data.error === 'missing_key') { setNote('Photo AI not set up yet \u2014 add items manually below.'); setDraft([]) }
+      else if (data.items && data.items.length) { setDraft(data.items); setNote('') }
+      else { setNote('Couldn\u2019t recognize food in the photo \u2014 add manually below.'); setDraft([]) }
+    } catch { setNote('Couldn\u2019t reach the photo AI \u2014 add manually below.'); setDraft([]) }
+    setLoading(false)
+  }
+  const addManualRow = () => setDraft(d => [...(d || []), { name: '', kcal: 0, p: 0, c: 0, f: 0 }])
+  const upd = (i, k, v) => setDraft(d => d.map((r, idx) => idx === i ? { ...r, [k]: v } : r))
+  const removeRow = i => setDraft(d => d.filter((_, idx) => idx !== i))
+  const confirm = () => {
+    const items = (draft || []).filter(r => r.name && (r.kcal > 0 || r.p > 0))
+    if (!items.length) { toast('Add a food name and kcal/protein for at least one item'); return }
+    onAdd(items); setPreview(null); setB64(null); setDraft(null); toast('Added to today\u2019s log')
+  }
+  return <div>
+    <label>Upload or take a food photo</label>
+    <input type="file" accept="image/*" capture="environment" onChange={onFile} />
+    {preview && <img src={preview} alt="food preview" style={{ width: '100%', maxHeight: 220, objectFit: 'cover', borderRadius: 12, marginTop: 10 }} />}
+    {preview && <button type="button" className="btn o mt" onClick={analyze} disabled={loading}>{loading ? 'Analyzing\u2026' : '\ud83d\udd0d Analyze photo'}</button>}
+    {note && <p className="sm" style={{ color: 'var(--mu)' }}>{note}</p>}
+    {draft && <div className="mt">
+      {draft.map((r, i) => <div className="qrow" key={i}>
+        <input placeholder="food name" value={r.name} onChange={e => upd(i, 'name', e.target.value)} style={{ flex: 1, marginRight: 8 }} />
+        <div className="qi"><input type="number" value={r.kcal} onChange={e => upd(i, 'kcal', +e.target.value)} placeholder="kcal" /><input type="number" value={r.p} onChange={e => upd(i, 'p', +e.target.value)} placeholder="protein g" /><button type="button" className="x" onClick={() => removeRow(i)}>\ud83d\uddd1</button></div>
+      </div>)}
+      <button type="button" className="btn o mt" onClick={addManualRow}>+ Add item manually</button>
+      <button type="button" className="btn mt" onClick={confirm}>Add to today's log</button>
+    </div>}
+  </div>
+}
+
 function NutritionPage({ meals, setMeals, p, toast, q }) {
   const [ndate, setNdate] = useState(todayStr)
+  const [tab, setTab] = useState('text')
   const shift = d => setNdate(prev => { const dt = new Date(prev); dt.setDate(dt.getDate() + d); return dt.toISOString().slice(0, 10) })
   const dayMeals = meals.filter(m => m.date === ndate && (m.name + m.type).toLowerCase().includes(q.toLowerCase()))
   const tot = dayMeals.filter(m => m.done).reduce((a, m) => ({ kcal: a.kcal + m.kcal, p: a.p + m.p }), { kcal: 0, p: 0 })
@@ -173,7 +223,8 @@ function NutritionPage({ meals, setMeals, p, toast, q }) {
     <div className="card">
       <div className="hd"><h3>⚡ Quick Add \u2014 {ndate === todayStr ? 'Today' : ndate}</h3><div style={{ display: 'flex', gap: 8 }}><button className="btn o" onClick={() => shift(-1)}>← Prev day</button><button className="btn o" onClick={() => shift(1)} disabled={ndate >= todayStr}>Next day →</button></div></div>
       <p className="sm">🔥 {tot.kcal} / {p.kcal} kcal · 💪 {tot.p} / {p.protein} g protein · {bal >= 0 ? `${bal} kcal to go` : `${-bal} kcal over`}</p>
-      <QuickAdd toast={toast} onAdd={addQuick} />
+      <div className="tabs"><button className={tab === 'text' ? 'on' : ''} onClick={() => setTab('text')}>\u270f\ufe0f Type food</button><button className={tab === 'photo' ? 'on' : ''} onClick={() => setTab('photo')}>\ud83d\udcf7 Photo</button></div>
+      {tab === 'text' ? <QuickAdd toast={toast} onAdd={addQuick} /> : <PhotoLog toast={toast} onAdd={addQuick} />}
     </div>
     <div className="card"><h3>Meals \u2014 {ndate}</h3>
       {dayMeals.length ? dayMeals.map(m => <MealRow key={m.id} m={m} onToggle={id => setMeals(ms => ms.map(x => x.id === id ? { ...x, done: !x.done } : x))} onDelete={id => setMeals(ms => ms.filter(x => x.id !== id))} />) : <p className="empty">No meals logged for this day yet \u2014 use Quick Add above.</p>}
@@ -204,7 +255,7 @@ export default function App() {
   const addQuickHome = items => { const now = new Date(); const type = typeForHour(now.getHours()); setMeals(ms => [...ms, ...items.map(r => ({ id: uid(), type, time: now.toTimeString().slice(0, 5), name: r.matched ? `${r.name}${r.unit ? ` (${r.qty} ${r.unit})` : ''}` : r.raw, e: emojiFor(r.name || r.raw), kcal: +r.kcal || 0, p: +r.p || 0, c: +r.c || 0, f: +r.f || 0, done: true, date: todayStr }))]); setModal(null) }
 
   const macro = [['Calories', T.kcal, p.kcal, 'kcal', '#2f8f5b', '🔥'], ['Protein', T.p, p.protein, 'g', '#3b82f6', '💧'], ['Carbs', T.c, p.carbs, 'g', '#f59e0b', '🌾'], ['Fats', T.f, p.fats, 'g', '#8b5cf6', '🥑']]
-  const openMeal = () => setModal('meal'), openWork = () => setModal('workout'), openQuick = () => setModal('quick')
+  const openMeal = () => setModal('meal'), openWork = () => setModal('workout'), openQuick = () => setModal('quick'), openPhoto = () => setModal('photo')
 
   const home = <div className="layout"><div className="col">
     <div className="card hero"><div><h1>{greet}, {p.name.split(' ')[0]}! 👋</h1><p>Healthy food + Consistent routine = Better you</p></div>
@@ -220,7 +271,7 @@ export default function App() {
       <div className="banner"><span>{QUOTES[qi]}</span><button aria-label="next quote" onClick={() => setQi((qi + 1) % QUOTES.length)}>›</button></div></div>
   </div><div className="col">
     <div className="card"><div className="prof"><div className="av lg">{p.name[0]}</div><div><h3 style={{ margin: 0 }}>{p.name}</h3><small className="empty">Fitness Enthusiast</small></div></div><div className="pst"><div><b>{p.height} cm</b>Height</div><div><b>{p.weight} kg</b>Weight</div><div><b>{p.age}</b>Age</div></div></div>
-    <div className="card"><h3>Quick Actions</h3><div className="col" style={{ gap: 10 }}><button className="btn w qa1" onClick={openQuick}>⚡ Quick Add (type what you ate)</button><button className="btn w qa2" onClick={openMeal}>🍴 Log Meal (manual)</button><button className="btn w qa3" onClick={() => go('kcal')}>🔥 Calculate Kcal</button><button className="btn w qa4" onClick={openWork}>🏋️ Add Workout</button></div></div>
+    <div className="card"><h3>Quick Actions</h3><div className="col" style={{ gap: 10 }}><button className="btn w qa1" onClick={openQuick}>⚡ Quick Add (type what you ate)</button><button className="btn w qa2" onClick={openPhoto}>📷 Photo Log (snap your food)</button><button className="btn w qa3" onClick={openMeal}>🍴 Log Meal (manual)</button><button className="btn w qa4" onClick={openWork}>🏋️ Add Workout</button></div></div>
     <div className="card"><div className="hd"><div><h3 style={{ margin: 0 }}>Today's Goal</h3><small className="empty">Stay consistent. You're doing great!</small></div><div className="ring" style={{ background: `conic-gradient(#2f8f5b ${goalPct}%,#e5ece7 0)` }}><div>{goalPct}%</div></div></div></div>
     <div className="card"><h3>Nutrition Tips</h3><p className="empty">Add more vegetables and drink at least 3L of water daily.</p><div className="wt">💧 <button onClick={() => setWater(Math.max(0, water - 1))}>−</button><b>{water} glasses</b><button onClick={() => { setWater(water + 1); toast('Water logged') }}>+</button></div></div>
     <div className="card"><h3>Weekly Routine</h3><p className="empty">Healthy habits build a stronger you.</p><button className="btn o" onClick={() => go('routine')}>Open routine</button></div>
@@ -258,6 +309,9 @@ export default function App() {
     {modal === 'quick' && <div className="modal" onClick={() => setModal(null)}><div className="card" onClick={e => e.stopPropagation()} style={{ width: 440, maxWidth: '100%' }}>
       <div className="hd"><h3>⚡ Quick Add \u2014 Today</h3><button className="x" onClick={() => setModal(null)}>✕</button></div>
       <QuickAdd toast={toast} onAdd={addQuickHome} /></div></div>}
+    {modal === 'photo' && <div className="modal" onClick={() => setModal(null)}><div className="card" onClick={e => e.stopPropagation()} style={{ width: 440, maxWidth: '100%' }}>
+      <div className="hd"><h3>📷 Photo Log \u2014 Today</h3><button className="x" onClick={() => setModal(null)}>✕</button></div>
+      <PhotoLog toast={toast} onAdd={addQuickHome} /></div></div>}
     {modal === 'meal' && <Modal title="Log Meal" onClose={() => setModal(null)} onSubmit={f => { setMeals([...meals, { id: uid(), type: f.type, time: f.time, name: f.name, e: '🍽️', kcal: +f.kcal, p: +f.p, c: +f.c, f: +f.f, done: true, date: todayStr }]); setModal(null); toast('Meal logged') }}>
       <label>Meal type</label><select name="type"><option>Breakfast</option><option>Lunch</option><option>Evening Snack</option><option>Dinner</option><option>Night</option></select><label>Food</label><input name="name" required placeholder="e.g. Paneer + Roti" /><label>Time</label><input name="time" type="time" defaultValue="12:00" />
       <div className="g2"><div><label>Kcal</label><input name="kcal" type="number" required /></div><div><label>Protein (g)</label><input name="p" type="number" defaultValue="0" /></div><div><label>Carbs (g)</label><input name="c" type="number" defaultValue="0" /></div><div><label>Fats (g)</label><input name="f" type="number" defaultValue="0" /></div></div></Modal>}
